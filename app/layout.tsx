@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { AuthProvider } from '@/context/AuthContext';
+import { AuthProvider } from "@/context/AuthContext";
+import Header from "@/components/Header";
+import { Toaster } from "@/components/ui/sonner"; // Updated import to Sonner
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -27,8 +29,10 @@ export default function RootLayout({
     <html lang="en">
       <body>
         <AuthProvider>
+          <Header />
           {children}
         </AuthProvider>
+        <Toaster />
       </body>
     </html>
   );

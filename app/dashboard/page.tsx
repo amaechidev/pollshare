@@ -15,52 +15,52 @@ export default async function DashboardPage() {
     const userId = session.user.id;
 
     // Fetch user's polls
-    // const { data: polls, error } = await supabase
-    //   .from("polls")
-    //   .select(`*`)
-    //   .eq("creator_id", userId)
-    //   .order("created_at", { ascending: false });
+    const { data: polls, error } = await supabase
+      .from("polls")
+      .select(`*`)
+      .eq("creator_id", userId)
+      .order("created_at", { ascending: false });
 
-    // if (error) {
-    //   console.error("Error fetching polls:", error);
-    //   throw new Error(`Failed to fetch polls: ${error.message}`);
-    // }
+    if (error) {
+      console.error("Error fetching polls:", error);
+      throw new Error(`Failed to fetch polls: ${error.message}`);
+    }
 
-    const polls = [
-      {
-        id: "1",
-        title: "Favorite Color",
-        description: "Choose your favorite color from the options below.",
-        is_active: true,
-        is_public: true,
-        vote_count: 150,
-        creator_id: userId,
-        expires_at: "2024-12-31T23:59:59Z",
-        created_at: "2024-01-15T10:00:00Z",
-      },
-      {
-        id: "2",
-        title: "Best Programming Language",
-        description: "Which programming language do you prefer for web development?",
-        is_active: true,
-        is_public: false,
-        vote_count: 230,
-        creator_id: userId,
-        expires_at: "2024-11-01T18:00:00Z",
-        created_at: "2024-02-20T14:30:00Z",
-      },
-      {
-        id: "3",
-        title: "Dream Travel Destination",
-        description: "Where would you like to travel next?",
-        is_active: false,
-        is_public: true,
-        vote_count: 90,
-        creator_id: userId,
-        expires_at: "2024-10-01T12:00:00Z",
-        created_at: "2024-03-10T09:00:00Z",
-      },
-    ];
+    // const polls = [
+    //   {
+    //     id: "1",
+    //     title: "Favorite Color",
+    //     description: "Choose your favorite color from the options below.",
+    //     is_active: true,
+    //     is_public: true,
+    //     vote_count: 150,
+    //     creator_id: userId,
+    //     expires_at: "2024-12-31T23:59:59Z",
+    //     created_at: "2024-01-15T10:00:00Z",
+    //   },
+    //   {
+    //     id: "2",
+    //     title: "Best Programming Language",
+    //     description: "Which programming language do you prefer for web development?",
+    //     is_active: true,
+    //     is_public: false,
+    //     vote_count: 230,
+    //     creator_id: userId,
+    //     expires_at: "2024-11-01T18:00:00Z",
+    //     created_at: "2024-02-20T14:30:00Z",
+    //   },
+    //   {
+    //     id: "3",
+    //     title: "Dream Travel Destination",
+    //     description: "Where would you like to travel next?",
+    //     is_active: false,
+    //     is_public: true,
+    //     vote_count: 90,
+    //     creator_id: userId,
+    //     expires_at: "2024-10-01T12:00:00Z",
+    //     created_at: "2024-03-10T09:00:00Z",
+    //   },
+    // ];
 
     return (
       <div className="container mx-auto max-w-5xl py-8 px-4 sm:px-6 lg:px-8">
@@ -105,7 +105,7 @@ export default async function DashboardPage() {
             </Button>
           </div>
         ) : (
-          <PollList polls={polls} />
+          <PollList polls={polls} currentUserId={userId} />
         )}
       </div>
     );
