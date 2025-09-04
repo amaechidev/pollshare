@@ -16,6 +16,130 @@ interface PollOption {
   created_at: string;
 }
 
+// Helper function to get user and check authentication
+async function checkUserAuthentication(supabase: any) {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError) {
+    // A real error occurred with the Supabase auth system
+    return {
+      authenticated: false,
+      userId: null,
+      error: userError.message,
+    };
+  }
+
+  if (!user) {
+    // No user is logged in, but no error from the auth system
+    return { authenticated: false, userId: null, error: null };
+  }
+
+  return { authenticated: true, userId: user.id, error: null };
+}
+
+// Helper function to fetch poll details and check its status
+async function fetchAndValidatePoll(supabase: any, pollId: string) {
+  const { data: poll, error: fetchPollError } = await supabase
+    .from("polls")
+    .select("is_active, is_public")
+    .eq("id", pollId)
+    .single();
+
+  if (fetchPollError || !poll) {
+    console.error("Error fetching poll for voting:", fetchPollError);
+    return { success: false, error: "Poll not found." };
+  }
+  if (!poll.is_active) {
+    return { success: false, error: "This poll is not active." };
+  }
+  return { success: true, error: null };
+}
+
+// Helper function to check for existing votes
+async function checkExistingVote(
+  supabase: any,
+  pollId: string,
+  finalVoterId: string | null,
+  finalVoterFingerprint: string
+) {
+  const { data: existingVote, error: checkVoteError } = await supabase
+    .from("votes")
+    .select("id")
+    .eq("poll_id", pollId)
+    .or(
+      `voter_id.eq.${finalVoterId},voter_fingerprint.eq.${finalVoterFingerprint}`
+    )
+    .single();
+
+  if (checkVoteError && checkVoteError.code !== "PGRST116") {
+    // PGRST116 means "no rows found"
+    console.error("Error checking for existing vote:", checkVoteError);
+    return { success: false, error: "Failed to check for existing vote." };
+  }
+  if (existingVote) {
+    return { success: false, error: "You have already voted on this poll." };
+  }
+  return { success: true, error: null };
+}
+
+// Helper function to insert the vote record
+async function insertVoteRecord(
+  supabase: any,
+  pollId: string,
+  optionId: string,
+  finalVoterId: string | null,
+  finalVoterFingerprint: string,
+  voterIp: string | null,
+  userAgent: string | null
+) {
+  const { error: insertVoteError } = await supabase.from("votes").insert({
+    poll_id: pollId,
+    poll_option_id: optionId,
+    voter_id: finalVoterId,
+    voter_fingerprint: finalVoterFingerprint,
+    voter_ip: voterIp,
+    user_agent: userAgent,
+  });
+
+  if (insertVoteError) {
+    console.error("Error inserting vote:", insertVoteError);
+    return { success: false, error: insertVoteError.message };
+  }
+  return { success: true, error: null };
+}
+
+// Helper function to increment vote counts
+async function incrementVoteCounts(
+  supabase: any,
+  pollId: string,
+  optionId: string
+) {
+  const { error: incrementOptionError } = await supabase.rpc(
+    "increment_option_vote_count",
+    { option_id: optionId }
+  );
+  if (incrementOptionError) {
+    console.error(
+      "Error incrementing option vote count:",
+      incrementOptionError
+    );
+    return { success: false, error: "Failed to update option vote count." };
+  }
+
+  const { error: incrementPollError } = await supabase.rpc(
+    "increment_poll_vote_count",
+    { p_id: pollId }
+  );
+  if (incrementPollError) {
+    console.error("Error incrementing poll vote count:", incrementPollError);
+    return { success: false, error: "Failed to update poll vote count." };
+  }
+  return { success: true, error: null };
+}
+
 export async function deletePoll(pollId: string) {
   const supabase = await createClient();
 
@@ -236,32 +360,18 @@ export async function voteOnPoll(
     const userAgent = headersList.get("user-agent") || null;
 
     const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    // Fetch poll to ensure it's active and public (if not already handled by RLS on insert)
-    const { data: poll, error: fetchPollError } = await supabase
-      .from("polls")
-      .select("is_active, is_public")
-      .eq("id", pollId)
-      .single();
-
-    if (fetchPollError || !poll) {
-      console.error("Error fetching poll for voting:", fetchPollError);
-      return { success: false, error: "Poll not found." };
-    }
-
-    if (!poll.is_active) {
-      return { success: false, error: "This poll is not active." };
-    }
+      authenticated,
+      userId,
+      error: authCheckError,
+    } = await checkUserAuthentication(supabase);
+    if (authCheckError) return { success: false, error: authCheckError };
 
     let finalVoterId: string | null = null;
     let finalVoterFingerprint: string | null = null;
 
-    if (user) {
-      finalVoterId = user.id;
-      finalVoterFingerprint = user.id; // Use user ID as fingerprint for authenticated users
+    if (authenticated && userId) {
+      finalVoterId = userId;
+      finalVoterFingerprint = userId; // Use user ID as fingerprint for authenticated users
     } else if (voterFingerprint) {
       finalVoterFingerprint = voterFingerprint; // Use client-provided fingerprint for anonymous
     } else {
@@ -271,65 +381,45 @@ export async function voteOnPoll(
       };
     }
 
-    // Check for duplicate votes (based on voter_id or fingerprint + poll_id)
-    const { data: existingVote, error: checkVoteError } = await supabase
-      .from("votes")
-      .select("id")
-      .eq("poll_id", pollId)
-      .or(
-        `voter_id.eq.${finalVoterId},voter_fingerprint.eq.${finalVoterFingerprint}`
-      )
-      .single();
-
-    if (checkVoteError && checkVoteError.code !== "PGRST116") {
-      // PGRST116 means "no rows found"
-      console.error("Error checking for existing vote:", checkVoteError);
-      return { success: false, error: "Failed to check for existing vote." };
-    }
-
-    if (existingVote) {
-      return { success: false, error: "You have already voted on this poll." };
-    }
-
-    // Insert the vote record
-    const { error: insertVoteError } = await supabase.from("votes").insert({
-      poll_id: pollId,
-      poll_option_id: optionId,
-      voter_id: finalVoterId, // Will be user.id or null
-      voter_fingerprint: finalVoterFingerprint, // Will be user.id or client-generated
-      voter_ip: voterIp, // Include voter IP
-      user_agent: userAgent, // Include User Agent
-    });
-
-    if (insertVoteError) {
-      console.error("Error inserting vote:", insertVoteError);
-      return { success: false, error: insertVoteError.message };
-    }
-
-    // Increment vote counts using the SQL functions
-    const { error: incrementOptionError } = await supabase.rpc(
-      "increment_option_vote_count",
-      { option_id: optionId }
+    // 2. Fetch and validate poll details
+    const { success: pollValid, error: pollError } = await fetchAndValidatePoll(
+      supabase,
+      pollId
     );
-    if (incrementOptionError) {
-      console.error(
-        "Error incrementing option vote count:",
-        incrementOptionError
+    if (!pollValid) return { success: false, error: pollError ?? undefined };
+
+    // 3. Check for duplicate votes
+    const { success: notDuplicate, error: duplicateError } =
+      await checkExistingVote(
+        supabase,
+        pollId,
+        finalVoterId,
+        finalVoterFingerprint!
       );
-      return { success: false, error: "Failed to update option vote count." };
-    }
+    if (!notDuplicate)
+      return { success: false, error: duplicateError ?? undefined };
 
-    const { error: incrementPollError } = await supabase.rpc(
-      "increment_poll_vote_count",
-      { p_id: pollId } // Use p_id as defined in SQL function
-    );
-    if (incrementPollError) {
-      console.error("Error incrementing poll vote count:", incrementPollError);
-      return { success: false, error: "Failed to update poll vote count." };
-    }
+    // 4. Insert the vote record
+    const { success: voteInserted, error: insertError } =
+      await insertVoteRecord(
+        supabase,
+        pollId,
+        optionId,
+        finalVoterId,
+        finalVoterFingerprint!,
+        voterIp,
+        userAgent
+      );
+    if (!voteInserted) return { success: false, error: insertError };
 
-    revalidatePath(`/polls/${pollId}`); // Revalidate the poll page to show updated counts
-    revalidatePath("/dashboard"); // Also revalidate dashboard if vote counts are shown there
+    // 5. Increment vote counts
+    const { success: countsIncremented, error: incrementError } =
+      await incrementVoteCounts(supabase, pollId, optionId);
+    if (!countsIncremented)
+      return { success: false, error: incrementError ?? undefined };
+
+    revalidatePath(`/polls/${pollId}`);
+    revalidatePath("/dashboard");
 
     return { success: true };
   } catch (error) {

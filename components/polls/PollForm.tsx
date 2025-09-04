@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useFieldArray, useForm, Control } from "react-hook-form";
-import { useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 import * as z from "zod";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -52,7 +52,10 @@ interface PollFormProps {
   mode: "create" | "edit";
 }
 
-export function PollForm({ initialData, mode }: PollFormProps) {
+export const PollForm = memo(function PollForm({
+  initialData,
+  mode,
+}: PollFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const router = useRouter();
 
@@ -93,60 +96,63 @@ export function PollForm({ initialData, mode }: PollFormProps) {
     }
   }, [initialData, form]);
 
-  async function onSubmit(values: z.infer<typeof formSchema>) {
-    // Validate expires_at is not in the past (if set)
-    if (values.expires_at) {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0); // Set to start of today
-      const expiresAtDate = new Date(values.expires_at);
-      expiresAtDate.setHours(0, 0, 0, 0); // Only compare date part
+  const onSubmit = useCallback(
+    async (values: z.infer<typeof formSchema>) => {
+      // Validate expires_at is not in the past (if set)
+      if (values.expires_at) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0); // Set to start of today
+        const expiresAtDate = new Date(values.expires_at);
+        expiresAtDate.setHours(0, 0, 0, 0); // Only compare date part
 
-      if (expiresAtDate < today) {
-        toast.error("Expiration date cannot be in the past.", {
-          description: "Please select today or a future date.",
+        if (expiresAtDate < today) {
+          toast.error("Expiration date cannot be in the past.", {
+            description: "Please select today or a future date.",
+          });
+          return;
+        }
+      }
+
+      setIsSubmitting(true);
+      try {
+        let result;
+        if (mode === "create") {
+          result = await createPoll(values);
+        } else {
+          // Mode is "edit", so initialData.id must be present
+          result = await updatePoll(initialData!.id, values);
+        }
+
+        if (result.success) {
+          toast.success(
+            mode === "create"
+              ? "Poll created successfully!"
+              : "Poll updated successfully!",
+            {
+              description:
+                mode === "create"
+                  ? "Your poll is now live and ready to receive votes."
+                  : "Your poll changes have been saved.",
+            }
+          );
+          router.push(`/polls/${result.pollId}`);
+        } else {
+          console.error(`Error ${mode}ing poll:`, result.error);
+          toast.error(`Failed to ${mode} poll`, {
+            description: result.error || "Please try again.",
+          });
+        }
+      } catch (error) {
+        console.error(`Unexpected error ${mode}ing form:`, error);
+        toast.error("An unexpected error occurred", {
+          description: "Please check your network and try again.",
         });
-        return;
+      } finally {
+        setIsSubmitting(false);
       }
-    }
-
-    setIsSubmitting(true);
-    try {
-      let result;
-      if (mode === "create") {
-        result = await createPoll(values);
-      } else {
-        // Mode is "edit", so initialData.id must be present
-        result = await updatePoll(initialData!.id, values);
-      }
-
-      if (result.success) {
-        toast.success(
-          mode === "create"
-            ? "Poll created successfully!"
-            : "Poll updated successfully!",
-          {
-            description:
-              mode === "create"
-                ? "Your poll is now live and ready to receive votes."
-                : "Your poll changes have been saved.",
-          }
-        );
-        router.push(`/polls/${result.pollId}`);
-      } else {
-        console.error(`Error ${mode}ing poll:`, result.error);
-        toast.error(`Failed to ${mode} poll`, {
-          description: result.error || "Please try again.",
-        });
-      }
-    } catch (error) {
-      console.error(`Unexpected error ${mode}ing form:`, error);
-      toast.error("An unexpected error occurred", {
-        description: "Please check your network and try again.",
-      });
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
+    },
+    [mode, initialData, router, isSubmitting]
+  );
 
   const canAddMore = fields.length < 10;
   const canRemove = fields.length > 2;
@@ -473,4 +479,4 @@ export function PollForm({ initialData, mode }: PollFormProps) {
       </div>
     </div>
   );
-}
+});

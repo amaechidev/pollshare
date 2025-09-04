@@ -290,7 +290,7 @@ describe("voteOnPoll", () => {
 
     const result = await voteOnPoll(POLL_ID, OPTION_ID);
 
-    expect(result).toEqual({ success: true });
+    expect(result).toEqual({ success: true, error: undefined });
     expect(mockCreateClient).toHaveBeenCalledTimes(1);
     expect(mockGetUser).toHaveBeenCalledTimes(1);
     expect(mockHeaders).toHaveBeenCalledTimes(1);
@@ -364,7 +364,7 @@ describe("voteOnPoll", () => {
 
     const result = await voteOnPoll(POLL_ID, OPTION_ID, ANONYMOUS_FINGERPRINT);
 
-    expect(result).toEqual({ success: true });
+    expect(result).toEqual({ success: true, error: undefined });
     expect(mockGetUser).toHaveBeenCalledTimes(1);
     expect(mockFrom).toHaveBeenCalledWith("polls");
     expect(pollsQuery.select).toHaveBeenCalledWith("is_active, is_public");
@@ -411,8 +411,8 @@ describe("voteOnPoll", () => {
       success: false,
       error: "Missing voter identifier for anonymous vote.",
     });
-    expect(mockFrom).toHaveBeenCalledTimes(1); // Only for polls
-    expect(pollsQuery.single).toHaveBeenCalledTimes(1);
+    expect(mockFrom).not.toHaveBeenCalled(); // Only for polls
+    expect(pollsQuery.single).not.toHaveBeenCalled();
     expect(mockFrom().insert).not.toHaveBeenCalled(); // No insert happens
     expect(mockRpc).not.toHaveBeenCalled();
     expect(mockRevalidatePath).not.toHaveBeenCalled();
